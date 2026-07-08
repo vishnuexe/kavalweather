@@ -6,10 +6,10 @@ scientific version of this material lives in the About & Methodology page.
 
 import streamlit as st
 
-st.set_page_config(page_title="Help — Kerala Weather Risk",
+st.set_page_config(page_title="Help — KavalWeather",
                    page_icon="❓", layout="centered")
 
-st.title("Help: understanding this dashboard")
+st.title("Help: understanding KavalWeather")
 st.caption("A plain-language guide to every number and colour you see. "
            "No weather knowledge needed.")
 

@@ -1,4 +1,6 @@
-# Kerala Weather Risk Dashboard
+# KavalWeather
+
+**Kerala's weather guardian** (*kaval* — Malayalam for "watch, guard").
 
 Hyperlocal rainfall & storm nowcasting demo for Kerala, India: a live,
 district-level flood/storm risk map with **explainable** composite scoring —

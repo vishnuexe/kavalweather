@@ -1,4 +1,4 @@
-"""Kerala Weather Risk Dashboard — main map view.
+"""KavalWeather (Kerala Weather Risk Dashboard) — main map view.
 
 Streamlit entry point. Renders the district risk map, the click-to-explain
 detail panel, and the location search. All scoring logic lives in
@@ -16,7 +16,7 @@ from src import config, data_sources, geo
 from src.risk_engine import RiskInputs, RISK_LEVELS, compute_risk
 
 st.set_page_config(
-    page_title="Kerala Weather Risk Dashboard",
+    page_title="KavalWeather — Kerala Weather Risk Dashboard",
     page_icon="🌧️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -61,10 +61,11 @@ with st.spinner("Fetching latest forecasts for all 14 districts…"):
     bundle = data_sources.fetch_all_districts()
     results = assess_all_districts(bundle)
 
-st.title("Kerala Weather Risk Dashboard")
+st.title("KavalWeather")
 st.caption(
-    "Hyperlocal rainfall & storm risk for the next 24 hours, with transparent, "
-    "explainable scoring. Data: Open-Meteo forecast & GloFAS river discharge."
+    "Kerala's weather guardian — hyperlocal rainfall & storm risk for the next "
+    "24 hours, with transparent, explainable scoring. "
+    "Data: Open-Meteo forecast & GloFAS river discharge."
 )
 
 if bundle["failed"] and not results:

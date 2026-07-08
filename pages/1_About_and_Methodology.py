@@ -2,15 +2,15 @@
 
 import streamlit as st
 
-st.set_page_config(page_title="About & Methodology — Kerala Weather Risk",
+st.set_page_config(page_title="About & Methodology — KavalWeather",
                    page_icon="🌧️", layout="centered")
 
 st.title("About & Methodology")
 
 st.markdown("""
-## What this dashboard does
+## What KavalWeather does
 
-The **Kerala Weather Risk Dashboard** provides a district-level, 24-hour
+**KavalWeather** (*kaval* — Malayalam for "watch, guard") provides a district-level, 24-hour
 composite indicator of rainfall and storm-related risk across Kerala's 14
 districts, together with point forecasts for any searched location. Its
 distinguishing feature is **explainability**: every score is decomposed into
@@ -86,6 +86,6 @@ contribution in points, in the same units as the composite.
   best-match forecasts.
 
 ---
-*Built for demonstration under the Kerala Startup Mission programme.
-Contact: the project team.*
+*KavalWeather — built for demonstration under the Kerala Startup Mission
+programme. Contact: the project team.*
 """)
