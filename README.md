@@ -2,6 +2,8 @@
 
 **Kerala's weather guardian** (*kaval* — Malayalam for "watch, guard").
 
+**🌐 Live demo: https://kavalweather.streamlit.app**
+
 Hyperlocal rainfall & storm nowcasting demo for Kerala, India: a live,
 district-level flood/storm risk map with **explainable** composite scoring —
 every score is decomposed into the factors that drove it, in plain language.
@@ -83,6 +85,11 @@ No secrets or environment variables are needed.
 | [Open-Meteo Flood API](https://open-meteo.com/en/docs/flood-api) (GloFAS) | River discharge anomaly | Free, no key |
 | [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) | Kerala place search | Free, no key |
 | District GeoJSON | Map boundaries | Open data (2011 census boundaries) |
+
+## License
+
+Proprietary — the code is public for demonstration and grant-evaluation
+purposes only. See [LICENSE](LICENSE).
 
 ## Disclaimer
 
