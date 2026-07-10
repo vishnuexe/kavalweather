@@ -220,6 +220,11 @@ def terrain_figure(name, marker=None, risk_result=None):
             xaxis=dict(title="", showticklabels=False),
             yaxis=dict(title="", showticklabels=False),
             zaxis=dict(title="Elevation (m)"),
+            # Start map-like: camera due south of the district looking
+            # north, so north is up on screen (plotly's default eye sits
+            # diagonally, leaving north pointing down-right).
+            camera=dict(eye=dict(x=0.0, y=-1.6, z=1.15),
+                        up=dict(x=0.0, y=0.0, z=1.0)),
         ),
         paper_bgcolor="rgba(0,0,0,0)",
     )
