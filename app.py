@@ -122,20 +122,32 @@ def terrain_figure(name, marker=None, risk_result=None):
     risk = None
     if risk_result is not None:
         risk = local_risk_field(risk_result, lons, lats, elev, mask)
+        # Fully pre-rendered hover strings with hoverinfo="text": the old
+        # plotly.js inside the click-events component substitutes
+        # hovertemplate placeholders unreliably on surface hover.
+        hover = [
+            ["" if not np.isfinite(r) else
+             "Local risk: {:.0f}/100<br>Elevation: {:.0f} m".format(r, zz)
+             for r, zz in zip(risk_row, z_row)]
+            for risk_row, z_row in zip(risk, np.nan_to_num(z))
+        ]
         fig = go.Figure(go.Surface(
             x=x_list, y=y_list, z=z_list,
             surfacecolor=_grid_to_lists(risk),
             cmin=0, cmax=100, colorscale="Portland",
             colorbar=dict(title="Risk", thickness=12, len=0.6),
-            text=np.char.mod("%.0f", np.nan_to_num(risk)).tolist(),
-            hovertemplate=("Local risk: %{text}/100<br>"
-                           "Elevation: %{z:.0f} m<extra></extra>"),
+            text=hover, hoverinfo="text",
         ))
     else:
+        hover = [
+            ["" if not np.isfinite(zz) else "Elevation: {:.0f} m".format(zz)
+             for zz in z_row]
+            for z_row in z
+        ]
         fig = go.Figure(go.Surface(
             x=x_list, y=y_list, z=z_list,
             colorscale="Turbo", colorbar=dict(title="m", thickness=12, len=0.6),
-            hovertemplate="Elevation: %{z:.0f} m<extra></extra>",
+            text=hover, hoverinfo="text",
         ))
 
     if marker:
@@ -173,10 +185,10 @@ def terrain_figure(name, marker=None, risk_result=None):
             z=(pick["elev"] + 25.0).tolist(),
             mode="markers",
             marker=dict(size=6, color="rgba(0,0,0,0.01)"),
-            customdata=np.stack([pick["risk"], pick["elev"]], axis=1).tolist(),
-            hovertemplate=("Local risk: %{customdata[0]:.0f}/100<br>"
-                           "Elevation: %{customdata[1]:.0f} m"
-                           "<extra>click to identify place</extra>"),
+            text=["Local risk: {:.0f}/100<br>Elevation: {:.0f} m<br>"
+                  "(click to identify place)".format(r, e)
+                  for r, e in zip(pick["risk"], pick["elev"])],
+            hoverinfo="text",
         ))
 
     # Compass: a line anchored in geography (it rotates with the scene,
