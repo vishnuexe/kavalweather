@@ -155,23 +155,32 @@ def fetch_point(lat: float, lon: float) -> Dict[str, Any]:
 
 @_cached
 def geocode_kerala(query: str) -> List[Dict[str, Any]]:
-    """Search Open-Meteo geocoding for places in Kerala matching ``query``.
+    """Search for places in Kerala matching ``query``.
 
-    Results are filtered to admin1 == Kerala (with a bounding-box fallback
-    for entries missing admin metadata). Returns [] on failure — the search
-    box degrades quietly rather than crashing.
+    Tries Open-Meteo geocoding first; its GeoNames index is thin on smaller
+    Kerala towns and villages (misses e.g. Kattappana, Kalpetta), so when it
+    returns nothing we fall back to OSM Nominatim bounded to the Kerala
+    bbox. Both are free and key-less. Returns [] on total failure — the
+    search box degrades quietly rather than crashing.
     """
+    results = _geocode_open_meteo(query)
+    if not results:
+        results = _geocode_nominatim(query)
+    return results
+
+
+def _geocode_open_meteo(query: str) -> List[Dict[str, Any]]:
     try:
         data = _get_json(config.GEOCODING_URL, {
             "name": query, "count": 10, "language": "en", "format": "json",
-            "country_code": "IN",
         })
     except Exception:  # noqa: BLE001
         return []
     results = []
     for r in data.get("results", []) or []:
         in_kerala = r.get("admin1") == "Kerala" or (
-            config.KERALA_BBOX["lat_min"] <= r.get("latitude", 0) <= config.KERALA_BBOX["lat_max"]
+            r.get("country_code") == "IN"
+            and config.KERALA_BBOX["lat_min"] <= r.get("latitude", 0) <= config.KERALA_BBOX["lat_max"]
             and config.KERALA_BBOX["lon_min"] <= r.get("longitude", 0) <= config.KERALA_BBOX["lon_max"]
         )
         if in_kerala:
@@ -181,6 +190,52 @@ def geocode_kerala(query: str) -> List[Dict[str, Any]]:
                 "latitude": r["latitude"],
                 "longitude": r["longitude"],
             })
+    return results
+
+
+def _geocode_nominatim(query: str) -> List[Dict[str, Any]]:
+    """OSM Nominatim fallback, restricted to the Kerala bounding box.
+
+    Nominatim usage policy: identify the app via User-Agent and stay under
+    1 request/second — searches here are user-typed, cached for 30 min, and
+    only fired when Open-Meteo found nothing.
+    """
+    bbox = config.KERALA_BBOX
+    try:
+        resp = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={
+                "q": query, "format": "jsonv2", "limit": 10,
+                "countrycodes": "in", "addressdetails": 1, "bounded": 1,
+                "viewbox": "{},{},{},{}".format(
+                    bbox["lon_min"], bbox["lat_max"], bbox["lon_max"], bbox["lat_min"]),
+            },
+            headers={"User-Agent": "KavalWeather/0.1 (https://github.com/vishnuexe/kavalweather)"},
+            timeout=config.REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:  # noqa: BLE001
+        return []
+    results: List[Dict[str, Any]] = []
+    for r in data:
+        addr = r.get("address", {})
+        if addr.get("state") != "Kerala":
+            continue
+        name = r.get("name") or r.get("display_name", "").split(",")[0]
+        lat, lon = float(r["lat"]), float(r["lon"])
+        # Nominatim often returns the same town as several nearby OSM
+        # objects; keep the first of each (name, ~2 km cell) pair.
+        key = (name, round(lat, 2), round(lon, 2))
+        if any((x["name"], round(x["latitude"], 2), round(x["longitude"], 2)) == key
+               for x in results):
+            continue
+        results.append({
+            "name": name,
+            "admin2": addr.get("state_district", "") or addr.get("county", ""),
+            "latitude": lat,
+            "longitude": lon,
+        })
     return results
 
 

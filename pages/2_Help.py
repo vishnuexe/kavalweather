@@ -105,13 +105,14 @@ flagged; if "River discharge anomaly" leads, the concern is river flooding
 rather than the sky above you. The bullet points below the chart say the
 same thing in words.
 
-**🏔️ 3D terrain view** — below the score breakdown there's an expandable
+**🏔️ 3D terrain view** — right below the map there's a switch that shows a
 3D model of the selected district. Colours show elevation (blue/green =
 low, red = high) and the surface shape is the real landscape, gently
 stretched vertically so hills are easier to see. Drag to rotate, scroll or
 pinch to zoom. It helps you *see* why a district is terrain-susceptible —
 Idukki rises like a wall, Alappuzha is almost perfectly flat. The first
-open takes a few seconds while the elevation model downloads.
+open takes a few seconds while the elevation model downloads; switch it
+off when you're done for the smoothest experience.
 
 ## Searching for your town
 

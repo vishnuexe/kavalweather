@@ -145,20 +145,40 @@ with map_col:
     map_out = st_folium(fmap, height=470, use_container_width=True,
                         returned_objects=["last_active_drawing"], key="main_map")
 
+    # Map click -> selected district (a fresh click wins over the selectbox
+    # once, then the selectbox takes over again).
+    clicked = (map_out or {}).get("last_active_drawing")
+    clicked_name = clicked["properties"].get("district") if clicked and "properties" in clicked else None
+    if clicked_name and clicked_name != st.session_state.get("_last_map_click"):
+        st.session_state["_last_map_click"] = clicked_name
+        st.session_state["district_select"] = clicked_name
+
+    # 3D terrain view, directly below the map. Behind a toggle on purpose:
+    # each 3D surface consumes a browser WebGL context (hard-capped per
+    # tab), so the chart must only exist while explicitly enabled, and
+    # reuses one mounted component (stable key) across district switches.
+    selected_district = st.session_state.get("district_select", config.DISTRICT_NAMES[0])
+    if st.toggle("🏔️ 3D terrain view — {}".format(selected_district), key="show_terrain_3d"):
+        try:
+            with st.spinner("Building elevation model…"):
+                st.plotly_chart(terrain_figure(selected_district),
+                                use_container_width=True, key="terrain_3d_chart",
+                                config={"displayModeBar": False})
+            st.caption(
+                "Elevation heatmap from open DEM tiles (~150 m grid, vertical "
+                "scale exaggerated). Drag to rotate, pinch/scroll to zoom."
+            )
+        except Exception:  # noqa: BLE001 - tiles unreachable: degrade
+            st.info("Terrain view is unavailable right now (elevation tile "
+                    "service unreachable). The risk score is unaffected — it "
+                    "uses precomputed terrain data.")
+
     chips = "".join(
         '<span class="legend-chip" style="background:{}">{}</span>'.format(color, name)
         for _, name, color in RISK_LEVELS
     )
     st.markdown("**Next-24h risk:** " + chips, unsafe_allow_html=True)
     st.caption("Tap a district for the full risk breakdown.")
-
-# Map click -> selected district (a fresh click wins over the selectbox once,
-# then the selectbox takes over again).
-clicked = (map_out or {}).get("last_active_drawing")
-clicked_name = clicked["properties"].get("district") if clicked and "properties" in clicked else None
-if clicked_name and clicked_name != st.session_state.get("_last_map_click"):
-    st.session_state["_last_map_click"] = clicked_name
-    st.session_state["district_select"] = clicked_name
 
 
 # ---------------------------------------------------------------------------
@@ -169,12 +189,13 @@ def rain_forecast_chart(weather_json, accent="#1565c0"):
     """48-hour hourly rainfall bar chart with a marker at the +24 h boundary."""
     frame = data_sources.rain_chart_frame(weather_json, hours=48)
     fig = go.Figure(go.Bar(
-        x=frame["time"], y=frame["precipitation"],
+        x=frame["time"].to_numpy(), y=frame["precipitation"],
         marker_color=accent, name="Rain (mm/h)",
         hovertemplate="%{x|%a %H:%M}<br>%{y:.1f} mm/h<extra></extra>",
     ))
     if len(frame) > 24:
-        fig.add_vline(x=frame["time"].iloc[24], line_dash="dot", line_color="#78909c")
+        fig.add_vline(x=frame["time"].iloc[24].to_pydatetime(),
+                      line_dash="dot", line_color="#78909c")
         fig.add_annotation(x=frame["time"].iloc[24], y=1, yref="paper",
                            text="+24 h", showarrow=False, font=dict(size=11, color="#78909c"))
     fig.update_layout(
@@ -233,7 +254,7 @@ def terrain_figure(name):
     return fig
 
 
-def render_assessment(result, weather_json, flood_json, district_name=None):
+def render_assessment(result, weather_json, flood_json):
     """Shared renderer for the district panel and searched-location panel."""
     st.markdown(
         '<span class="risk-badge" style="background:{}">{} · {}/100</span>'.format(
@@ -262,23 +283,6 @@ def render_assessment(result, weather_json, flood_json, district_name=None):
                     config={"displayModeBar": False})
     for c in result.contributions:
         st.markdown("- **{}** (+{:.1f} pts): {}".format(c.label, c.weighted_points, c.narrative))
-
-    if district_name:
-        with st.expander("🏔️ 3D terrain view — {}".format(district_name)):
-            try:
-                with st.spinner("Building elevation model…"):
-                    st.plotly_chart(terrain_figure(district_name),
-                                    use_container_width=True,
-                                    config={"displayModeBar": False})
-                st.caption(
-                    "Elevation heatmap from open DEM tiles (~150 m grid, "
-                    "vertical scale exaggerated). Drag to rotate, pinch/scroll "
-                    "to zoom."
-                )
-            except Exception:  # noqa: BLE001 - tiles unreachable: degrade
-                st.info("Terrain view is unavailable right now (elevation "
-                        "tile service unreachable). The risk score is "
-                        "unaffected — it uses precomputed terrain data.")
 
 
 def _fmt(value, unit):
@@ -310,7 +314,6 @@ with detail_col:
             results[district],
             bundle["weather"].get(district),
             bundle["flood"].get(district),
-            district_name=district,
         )
     else:
         st.info("No data available for {} right now.".format(district))
