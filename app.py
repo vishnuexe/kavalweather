@@ -14,6 +14,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 from streamlit_folium import st_folium
+from streamlit_plotly_events import plotly_events
 
 from src import config, data_sources, geo, terrain
 from src.risk_engine import (FACTOR_WEIGHTS, RiskInputs, RISK_LEVELS,
@@ -86,9 +87,11 @@ def terrain_figure(name, marker=None, risk_result=None):
     Colour is the per-cell risk field (blue = low, red = high, fixed 0-100
     scale) when ``risk_result`` is given, else plain elevation. ``marker``
     is an optional (label, lat, lon) pin, drawn only inside this district.
-    A sparse, near-invisible point layer carries (risk, elevation) as
-    customdata so clicks can be resolved to a spot (3D surfaces themselves
-    do not emit reliable click events).
+
+    Returns (figure, pick_info). pick_info describes the sparse clickable
+    point layer (trace index + per-point lat/lon/risk/elevation arrays) so
+    a click event can be resolved server-side; it is None when no risk
+    field is drawn.
     """
     lons, lats, elev, mask = terrain.district_elevation(name)
     z = np.where(mask, elev, np.nan)  # NaN outside the district -> not drawn
@@ -130,24 +133,46 @@ def terrain_figure(name, marker=None, risk_result=None):
                 hovertemplate="{}<br>Elevation: {:.0f} m<extra></extra>".format(label, spot),
             ))
 
+    pick = None
     if risk is not None:
-        # Clickable pick layer: every ~4th in-district cell, effectively
-        # invisible but selectable; customdata = (local risk, elevation).
-        step = max(1, int(np.ceil(max(z.shape) / 40.0)))
+        # Clickable pick layer: every ~3rd in-district cell, effectively
+        # invisible but selectable. Clicks are resolved server-side through
+        # the point index, so keep the arrays alongside the trace index.
+        step = max(1, int(np.ceil(max(z.shape) / 50.0)))
         sub = np.zeros_like(mask)
         sub[::step, ::step] = True
         pi, pj = np.where(mask & sub)
+        pick = {
+            "trace_index": len(fig.data),
+            "lat": lats[pi], "lon": lons[pj],
+            "risk": risk[pi, pj], "elev": elev[pi, pj],
+        }
         fig.add_trace(go.Scatter3d(
-            x=lons[pj], y=lats[pi], z=elev[pi, pj] + 25.0,
+            x=pick["lon"], y=pick["lat"], z=pick["elev"] + 25.0,
             mode="markers",
-            marker=dict(size=4, color="rgba(0,0,0,0.01)"),
-            customdata=np.stack([risk[pi, pj], elev[pi, pj]], axis=1),
+            marker=dict(size=6, color="rgba(0,0,0,0.01)"),
+            customdata=np.stack([pick["risk"], pick["elev"]], axis=1),
             hovertemplate=("Local risk: %{customdata[0]:.0f}/100<br>"
                            "Elevation: %{customdata[1]:.0f} m"
                            "<extra>click to identify place</extra>"),
         ))
 
-    fig.update_layout(showlegend=False)
+    # Compass: a line anchored in geography (it rotates with the scene,
+    # unlike billboard text alone) pointing due north, "N" at its tip.
+    lat_ext = float(lats.max() - lats.min())
+    cx = float(lons.max())
+    cy0, cy1 = float(lats.max() - 0.12 * lat_ext), float(lats.max())
+    ch = float(np.nanmax(z)) * 1.1 + 200.0
+    fig.add_trace(go.Scatter3d(
+        x=[cx, cx], y=[cy0, cy1], z=[ch, ch],
+        mode="lines+markers+text", text=["", "N"], textposition="top center",
+        line=dict(color="#1a1a1a", width=5),
+        marker=dict(size=[0, 5], color="#1a1a1a", symbol="diamond"),
+        textfont=dict(size=14, color="#1a1a1a"),
+        hoverinfo="skip",
+    ))
+
+    fig.update_layout(showlegend=False, scene_dragmode="turntable")
     # True-to-scale footprint with a gentle vertical exaggeration.
     lat_mid = math.radians(float(np.mean(lats)))
     x_km = abs(lons[-1] - lons[0]) * 111.32 * math.cos(lat_mid)
@@ -164,7 +189,7 @@ def terrain_figure(name, marker=None, risk_result=None):
         ),
         paper_bgcolor="rgba(0,0,0,0)",
     )
-    return fig
+    return fig, pick
 
 
 with st.spinner("Fetching latest forecasts for all 14 districts…"):
@@ -214,6 +239,35 @@ with st.expander("🔍 Search any Kerala town or village", expanded=False):
                                 label_visibility="collapsed")
             m = matches[labels.index(pick)]
             search_point = (m["name"], m["latitude"], m["longitude"])
+
+def _resolve_3d_click(clicks, pick3d):
+    """Map a plotly click event to (place name, local risk, elevation).
+
+    Prefers the pick-layer point index (exact); falls back to nearest
+    pick-layer point by coordinates if the click landed on another trace.
+    Returns None when there is nothing to resolve.
+    """
+    if not clicks or pick3d is None:
+        return None
+    c = clicks[-1]
+    idx = None
+    if c.get("curveNumber") == pick3d["trace_index"]:
+        pn = c.get("pointNumber", c.get("pointIndex"))
+        if isinstance(pn, int) and 0 <= pn < len(pick3d["lat"]):
+            idx = pn
+    if idx is None and c.get("x") is not None and c.get("y") is not None:
+        try:
+            lon, lat = float(c["x"]), float(c["y"])
+        except (TypeError, ValueError):
+            return None
+        idx = int(np.argmin((pick3d["lon"] - lon) ** 2 + (pick3d["lat"] - lat) ** 2))
+    if idx is None:
+        return None
+    lat = float(pick3d["lat"][idx])
+    lon = float(pick3d["lon"][idx])
+    place = data_sources.reverse_geocode(round(lat, 4), round(lon, 4)) or "Unnamed area"
+    return place, float(pick3d["risk"][idx]), float(pick3d["elev"][idx])
+
 
 # The detail panel shows either the searched place or the selected district
 # ("view mode"). A fresh search switches to the place — and selects the
@@ -287,27 +341,20 @@ with map_col:
     if st.toggle("🏔️ 3D risk & terrain view — {}".format(selected_district), key="show_terrain_3d"):
         try:
             with st.spinner("Building elevation model…"):
-                fig3d = terrain_figure(selected_district, marker=search_point,
-                                       risk_result=results.get(selected_district))
-                event = st.plotly_chart(fig3d, use_container_width=True,
-                                        key="terrain_3d_chart",
-                                        on_select="rerun", selection_mode="points",
-                                        config={"displayModeBar": False})
-            # A click on the pick layer -> identify the spot by name + risk.
-            points = []
-            try:
-                points = event.selection.points
-            except Exception:  # noqa: BLE001 - no selection support/state
-                points = []
-            picked = [p for p in points
-                      if isinstance(p.get("customdata"), (list, tuple))
-                      and len(p["customdata"]) == 2]
-            if picked:
-                p = picked[-1]
-                risk_val, elev_val = float(p["customdata"][0]), float(p["customdata"][1])
+                fig3d, pick3d = terrain_figure(
+                    selected_district, marker=search_point,
+                    risk_result=results.get(selected_district))
+            # streamlit-plotly-events hooks plotly's native click event,
+            # which fires in 3D scenes (Streamlit's own on_select does not,
+            # and it also breaks scene rotation). District-specific key so
+            # a click never carries over to another district's grid.
+            clicks = plotly_events(fig3d, click_event=True,
+                                   override_height=430,
+                                   key="terrain3d_{}".format(selected_district))
+            spot = _resolve_3d_click(clicks, pick3d)
+            if spot:
+                place, risk_val, elev_val = spot
                 level, color = level_for_score(risk_val)
-                place = data_sources.reverse_geocode(
-                    round(float(p["y"]), 4), round(float(p["x"]), 4)) or "Unnamed area"
                 st.markdown(
                     '📍 **{}** — local risk <span class="risk-badge" '
                     'style="background:{};font-size:0.85rem;padding:0.1rem 0.6rem">'
