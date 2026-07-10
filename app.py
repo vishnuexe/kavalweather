@@ -12,9 +12,18 @@ import math
 import folium
 import numpy as np
 import plotly.graph_objects as go
+import plotly.io as pio
 import streamlit as st
 from streamlit_folium import st_folium
 from streamlit_plotly_events import plotly_events
+
+# Serialize figures with the stdlib json engine. The default "auto" prefers
+# the native orjson when present, which segfaulted the Streamlit Cloud
+# process (Python 3.14) while serializing the NaN-heavy 3D surface.
+try:
+    pio.json.config.default_engine = "json"
+except Exception:  # noqa: BLE001 - engine knob varies across plotly versions
+    pass
 
 from src import config, data_sources, geo, terrain
 from src.risk_engine import (FACTOR_WEIGHTS, RiskInputs, RISK_LEVELS,
@@ -63,6 +72,16 @@ def assess_all_districts(bundle):
     return results
 
 
+def _grid_to_lists(a):
+    """2D numpy grid -> nested python lists with None for NaN.
+
+    The 3D figure is serialized by a third-party component; plain lists with
+    explicit nulls keep that path independent of numpy/NaN handling in
+    whichever JSON engine is active (see the orjson note at the top).
+    """
+    return [[None if not np.isfinite(v) else float(v) for v in row] for row in a]
+
+
 def local_risk_field(risk_result, lons, lats, elev, mask):
     """Per-cell 0-100 risk over a district's DEM grid.
 
@@ -99,20 +118,22 @@ def terrain_figure(name, marker=None, risk_result=None):
     # clamp so backwaters (Kuttanad ~ -3 m) stay visible without a fake trench.
     z = np.maximum(z, -10.0)
 
+    x_list, y_list, z_list = lons.tolist(), lats.tolist(), _grid_to_lists(z)
     risk = None
     if risk_result is not None:
         risk = local_risk_field(risk_result, lons, lats, elev, mask)
         fig = go.Figure(go.Surface(
-            x=lons, y=lats, z=z,
-            surfacecolor=risk, cmin=0, cmax=100, colorscale="Portland",
+            x=x_list, y=y_list, z=z_list,
+            surfacecolor=_grid_to_lists(risk),
+            cmin=0, cmax=100, colorscale="Portland",
             colorbar=dict(title="Risk", thickness=12, len=0.6),
-            text=np.char.mod("%.0f", np.nan_to_num(risk)),
+            text=np.char.mod("%.0f", np.nan_to_num(risk)).tolist(),
             hovertemplate=("Local risk: %{text}/100<br>"
                            "Elevation: %{z:.0f} m<extra></extra>"),
         ))
     else:
         fig = go.Figure(go.Surface(
-            x=lons, y=lats, z=z,
+            x=x_list, y=y_list, z=z_list,
             colorscale="Turbo", colorbar=dict(title="m", thickness=12, len=0.6),
             hovertemplate="Elevation: %{z:.0f} m<extra></extra>",
         ))
@@ -148,10 +169,11 @@ def terrain_figure(name, marker=None, risk_result=None):
             "risk": risk[pi, pj], "elev": elev[pi, pj],
         }
         fig.add_trace(go.Scatter3d(
-            x=pick["lon"], y=pick["lat"], z=pick["elev"] + 25.0,
+            x=pick["lon"].tolist(), y=pick["lat"].tolist(),
+            z=(pick["elev"] + 25.0).tolist(),
             mode="markers",
             marker=dict(size=6, color="rgba(0,0,0,0.01)"),
-            customdata=np.stack([pick["risk"], pick["elev"]], axis=1),
+            customdata=np.stack([pick["risk"], pick["elev"]], axis=1).tolist(),
             hovertemplate=("Local risk: %{customdata[0]:.0f}/100<br>"
                            "Elevation: %{customdata[1]:.0f} m"
                            "<extra>click to identify place</extra>"),
