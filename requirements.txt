@@ -4,3 +4,5 @@ folium>=0.15
 requests>=2.31
 pandas>=2.0
 plotly>=5.18
+numpy>=1.24
+Pillow>=10.0

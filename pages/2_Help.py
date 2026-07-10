@@ -34,10 +34,11 @@ on a phone). You can also pick a district from the dropdown list.
 
 Every district gets one number between 0 and 100. It is not a percentage
 and not a chance of rain — think of it as a **danger meter** that combines
-five things: how much rain is coming, how intense the bursts of rain will
-be, how likely thunderstorms are, how strong the wind gusts will be, and
-whether nearby rivers are rising. The higher the number, the more of these
-signals are elevated at the same time.
+six things: how much rain is coming, how intense the bursts of rain will
+be, how likely thunderstorms are, how strong the wind gusts will be,
+whether nearby rivers are rising, and how vulnerable the district's own
+landscape is to that weather (steep hills or very low-lying land). The
+higher the number, the more of these signals are elevated at the same time.
 
 ## The six numbers in the detail panel
 
@@ -70,6 +71,16 @@ gust lasts a few seconds; it is stronger than the average wind). Around
 riding a two-wheeler gets risky, and 90 km/h+ can bring down trees and
 power lines.
 
+**Terrain susceptibility** (in the "Why this score?" list) — how dangerous
+the district's *landscape itself* is when heavy rain arrives. It combines
+two things read from elevation maps: how **steep** the land is (steep
+slopes shed water fast and can slip — think Idukki's hills) and how much
+land is **very low-lying**, below 10 m above sea level (water pools there
+instead of draining — think Kuttanad in Alappuzha). Important: this factor
+only adds points **when wet weather is actually forecast**. On a dry day
+even the steepest district gets zero points from its terrain — geography
+loads the gun, weather pulls the trigger.
+
 **River discharge (× normal)** — how much water is forecast to flow in the
 nearest river compared with its own average over the past 30 days. `1.0×`
 means the river is at its normal level. `2.0×` means twice the usual water
@@ -93,6 +104,14 @@ has the longest bar, rain volume is the main reason the district is
 flagged; if "River discharge anomaly" leads, the concern is river flooding
 rather than the sky above you. The bullet points below the chart say the
 same thing in words.
+
+**🏔️ 3D terrain view** — below the score breakdown there's an expandable
+3D model of the selected district. Colours show elevation (blue/green =
+low, red = high) and the surface shape is the real landscape, gently
+stretched vertically so hills are easier to see. Drag to rotate, scroll or
+pinch to zoom. It helps you *see* why a district is terrain-susceptible —
+Idukki rises like a wall, Alappuzha is almost perfectly flat. The first
+open takes a few seconds while the elevation model downloads.
 
 ## Searching for your town
 

@@ -20,6 +20,11 @@ Community Cloud or Hugging Face Spaces.
   contribution breakdown, and a one-line reason ("High risk, mainly due to
   85 mm of rain expected in the next 24h and river discharge at 2.3× its
   30-day average").
+- **Terrain-aware scoring** — a DEM-derived susceptibility index (mean
+  slope, share of land below 10 m) amplifies the score when heavy rain
+  meets hazardous terrain; zero effect on calm days.
+- **3D terrain view** — an interactive elevation model of the selected
+  district, clipped to its boundary, from free AWS Terrain Tiles.
 - **Location search** — any Kerala town/village → point forecast + risk.
 - **About & Methodology** page — data sources, thresholds, limitations.
 - **Graceful degradation** — 30 min response caching; if an API is down the
@@ -36,8 +41,12 @@ src/
   data_sources.py             Open-Meteo / GloFAS clients, caching, fallback
   risk_engine.py              Isolated 0–100 scoring module (pure, documented)
   geo.py                      District GeoJSON handling
+  terrain.py                  DEM tiles: terrain stats + 3D elevation grids
+scripts/
+  build_terrain_stats.py      Regenerates data/terrain_stats.json offline
 data/
   kerala_districts.geojson    14-district boundaries (2011 census, open data)
+  terrain_stats.json          Precomputed per-district DEM statistics
 .streamlit/config.toml        Theme
 requirements.txt
 ```
@@ -84,6 +93,7 @@ No secrets or environment variables are needed.
 | [Open-Meteo Forecast API](https://open-meteo.com) | Hourly precipitation, CAPE, wind gusts | Free for non-commercial use, no key |
 | [Open-Meteo Flood API](https://open-meteo.com/en/docs/flood-api) (GloFAS) | River discharge anomaly | Free, no key |
 | [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) | Kerala place search | Free, no key |
+| [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) | DEM: terrain susceptibility + 3D view | Free, no key |
 | District GeoJSON | Map boundaries | Open data (2011 census boundaries) |
 
 ## License

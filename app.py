@@ -6,13 +6,15 @@ detail panel, and the location search. All scoring logic lives in
 """
 
 import datetime as dt
+import math
 
 import folium
+import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 from streamlit_folium import st_folium
 
-from src import config, data_sources, geo
+from src import config, data_sources, geo, terrain
 from src.risk_engine import RiskInputs, RISK_LEVELS, compute_risk
 
 st.set_page_config(
@@ -52,7 +54,8 @@ def assess_all_districts(bundle):
         flood = bundle["flood"].get(name)
         if weather is None:
             continue
-        inputs = data_sources.derive_risk_inputs(weather, flood)
+        inputs = data_sources.derive_risk_inputs(
+            weather, flood, terrain.district_stats(name))
         results[name] = compute_risk(RiskInputs(**inputs))
     return results
 
@@ -65,7 +68,7 @@ st.title("KavalWeather")
 st.caption(
     "Kerala's weather guardian — hyperlocal rainfall & storm risk for the next "
     "24 hours, with transparent, explainable scoring. "
-    "Data: Open-Meteo forecast & GloFAS river discharge."
+    "Data: Open-Meteo forecast, GloFAS river discharge & open DEM terrain."
 )
 
 if bundle["failed"] and not results:
@@ -199,7 +202,38 @@ def contribution_chart(result):
     return fig
 
 
-def render_assessment(result, weather_json, flood_json):
+def terrain_figure(name):
+    """3D elevation surface of a district, clipped to its boundary."""
+    lons, lats, elev, mask = terrain.district_elevation(name)
+    z = np.where(mask, elev, np.nan)  # NaN outside the district -> not drawn
+    # Coastal cells can pick up offshore bathymetry from the DEM blend;
+    # clamp so backwaters (Kuttanad ~ -3 m) stay visible without a fake trench.
+    z = np.maximum(z, -10.0)
+    fig = go.Figure(go.Surface(
+        x=lons, y=lats, z=z,
+        colorscale="Turbo", colorbar=dict(title="m", thickness=12, len=0.6),
+        hovertemplate="Elevation: %{z:.0f} m<extra></extra>",
+    ))
+    # True-to-scale footprint with a gentle vertical exaggeration.
+    lat_mid = math.radians(float(np.mean(lats)))
+    x_km = abs(lons[-1] - lons[0]) * 111.32 * math.cos(lat_mid)
+    y_km = abs(lats[0] - lats[-1]) * 111.32
+    m = max(x_km, y_km)
+    fig.update_layout(
+        height=420, margin=dict(l=0, r=0, t=0, b=0),
+        scene=dict(
+            aspectmode="manual",
+            aspectratio=dict(x=x_km / m, y=y_km / m, z=0.25),
+            xaxis=dict(title="", showticklabels=False),
+            yaxis=dict(title="", showticklabels=False),
+            zaxis=dict(title="Elevation (m)"),
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    return fig
+
+
+def render_assessment(result, weather_json, flood_json, district_name=None):
     """Shared renderer for the district panel and searched-location panel."""
     st.markdown(
         '<span class="risk-badge" style="background:{}">{} · {}/100</span>'.format(
@@ -229,6 +263,23 @@ def render_assessment(result, weather_json, flood_json):
     for c in result.contributions:
         st.markdown("- **{}** (+{:.1f} pts): {}".format(c.label, c.weighted_points, c.narrative))
 
+    if district_name:
+        with st.expander("🏔️ 3D terrain view — {}".format(district_name)):
+            try:
+                with st.spinner("Building elevation model…"):
+                    st.plotly_chart(terrain_figure(district_name),
+                                    use_container_width=True,
+                                    config={"displayModeBar": False})
+                st.caption(
+                    "Elevation heatmap from open DEM tiles (~150 m grid, "
+                    "vertical scale exaggerated). Drag to rotate, pinch/scroll "
+                    "to zoom."
+                )
+            except Exception:  # noqa: BLE001 - tiles unreachable: degrade
+                st.info("Terrain view is unavailable right now (elevation "
+                        "tile service unreachable). The risk score is "
+                        "unaffected — it uses precomputed terrain data.")
+
 
 def _fmt(value, unit):
     if value is None:
@@ -246,7 +297,9 @@ with detail_col:
             if point["stale"]:
                 st.markdown('<div class="stale-note">⚠️ Showing last cached data for this location.</div>',
                             unsafe_allow_html=True)
-            p_inputs = data_sources.derive_risk_inputs(point["weather"], point["flood"])
+            p_inputs = data_sources.derive_risk_inputs(
+                point["weather"], point["flood"],
+                terrain.stats_for_point(search_point[1], search_point[2]))
             p_result = compute_risk(RiskInputs(**p_inputs))
             render_assessment(p_result, point["weather"], point["flood"])
         st.divider()
@@ -257,6 +310,7 @@ with detail_col:
             results[district],
             bundle["weather"].get(district),
             bundle["flood"].get(district),
+            district_name=district,
         )
     else:
         st.info("No data available for {} right now.".format(district))

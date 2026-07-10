@@ -200,16 +200,21 @@ def _now_local() -> pd.Timestamp:
     return pd.Timestamp.now(tz=config.TIMEZONE).floor("h").tz_localize(None)
 
 
-def derive_risk_inputs(weather_json: Optional[dict], flood_json: Optional[dict]) -> Dict[str, Optional[float]]:
+def derive_risk_inputs(weather_json: Optional[dict], flood_json: Optional[dict],
+                       terrain_stats: Optional[Dict[str, float]] = None) -> Dict[str, Optional[float]]:
     """Aggregate raw API payloads into the fields of ``RiskInputs``.
 
     All aggregation windows start at the current local hour. Missing series
     yield ``None`` so the risk engine can flag them as "no data".
+    ``terrain_stats`` is the static DEM summary from ``src.terrain``
+    (or None when the location has no terrain data).
     """
     out: Dict[str, Optional[float]] = {
         "rain_24h_mm": None, "peak_hourly_rain_mm": None,
         "cape_max_jkg": None, "wind_gust_max_kmh": None,
         "discharge_ratio": None,
+        "mean_slope_deg": (terrain_stats or {}).get("mean_slope_deg"),
+        "lowland_frac": (terrain_stats or {}).get("lowland_frac"),
     }
     if weather_json and "hourly" in weather_json:
         df = hourly_dataframe(weather_json)
