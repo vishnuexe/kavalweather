@@ -61,6 +61,37 @@ def assess_all_districts(bundle):
     return results
 
 
+def terrain_figure(name):
+    """3D elevation surface of a district, clipped to its boundary."""
+    lons, lats, elev, mask = terrain.district_elevation(name)
+    z = np.where(mask, elev, np.nan)  # NaN outside the district -> not drawn
+    # Coastal cells can pick up offshore bathymetry from the DEM blend;
+    # clamp so backwaters (Kuttanad ~ -3 m) stay visible without a fake trench.
+    z = np.maximum(z, -10.0)
+    fig = go.Figure(go.Surface(
+        x=lons, y=lats, z=z,
+        colorscale="Turbo", colorbar=dict(title="m", thickness=12, len=0.6),
+        hovertemplate="Elevation: %{z:.0f} m<extra></extra>",
+    ))
+    # True-to-scale footprint with a gentle vertical exaggeration.
+    lat_mid = math.radians(float(np.mean(lats)))
+    x_km = abs(lons[-1] - lons[0]) * 111.32 * math.cos(lat_mid)
+    y_km = abs(lats[0] - lats[-1]) * 111.32
+    m = max(x_km, y_km)
+    fig.update_layout(
+        height=420, margin=dict(l=0, r=0, t=0, b=0),
+        scene=dict(
+            aspectmode="manual",
+            aspectratio=dict(x=x_km / m, y=y_km / m, z=0.25),
+            xaxis=dict(title="", showticklabels=False),
+            yaxis=dict(title="", showticklabels=False),
+            zaxis=dict(title="Elevation (m)"),
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    return fig
+
+
 with st.spinner("Fetching latest forecasts for all 14 districts…"):
     bundle = data_sources.fetch_all_districts()
     results = assess_all_districts(bundle)
@@ -225,36 +256,6 @@ def contribution_chart(result):
     )
     return fig
 
-
-def terrain_figure(name):
-    """3D elevation surface of a district, clipped to its boundary."""
-    lons, lats, elev, mask = terrain.district_elevation(name)
-    z = np.where(mask, elev, np.nan)  # NaN outside the district -> not drawn
-    # Coastal cells can pick up offshore bathymetry from the DEM blend;
-    # clamp so backwaters (Kuttanad ~ -3 m) stay visible without a fake trench.
-    z = np.maximum(z, -10.0)
-    fig = go.Figure(go.Surface(
-        x=lons, y=lats, z=z,
-        colorscale="Turbo", colorbar=dict(title="m", thickness=12, len=0.6),
-        hovertemplate="Elevation: %{z:.0f} m<extra></extra>",
-    ))
-    # True-to-scale footprint with a gentle vertical exaggeration.
-    lat_mid = math.radians(float(np.mean(lats)))
-    x_km = abs(lons[-1] - lons[0]) * 111.32 * math.cos(lat_mid)
-    y_km = abs(lats[0] - lats[-1]) * 111.32
-    m = max(x_km, y_km)
-    fig.update_layout(
-        height=420, margin=dict(l=0, r=0, t=0, b=0),
-        scene=dict(
-            aspectmode="manual",
-            aspectratio=dict(x=x_km / m, y=y_km / m, z=0.25),
-            xaxis=dict(title="", showticklabels=False),
-            yaxis=dict(title="", showticklabels=False),
-            zaxis=dict(title="Elevation (m)"),
-        ),
-        paper_bgcolor="rgba(0,0,0,0)",
-    )
-    return fig
 
 
 def render_assessment(result, weather_json, flood_json):
