@@ -235,12 +235,8 @@ def district_stats(name: str) -> Optional[Dict[str, float]]:
     return _stats_table().get(name)
 
 
-def stats_for_point(lat: float, lon: float) -> Optional[Dict[str, float]]:
-    """Terrain stats of the district containing (lat, lon), if any.
-
-    A searched point inherits its district's terrain profile — a coarse but
-    honest MVP approximation (see TODOs in risk_engine for the upgrade path).
-    """
+def district_for_point(lat: float, lon: float) -> Optional[str]:
+    """Name of the district containing (lat, lon), or None (e.g. at sea)."""
     pt_lon = np.array([[lon]])
     pt_lat = np.array([[lat]])
     for feat in geo.load_districts_geojson()["features"]:
@@ -256,5 +252,15 @@ def stats_for_point(lat: float, lon: float) -> Optional[Dict[str, float]]:
                                    np.asarray(ring, dtype=np.float64))[0, 0])
             inside |= m
         if inside:
-            return district_stats(feat["properties"]["district"])
+            return feat["properties"]["district"]
     return None
+
+
+def stats_for_point(lat: float, lon: float) -> Optional[Dict[str, float]]:
+    """Terrain stats of the district containing (lat, lon), if any.
+
+    A searched point inherits its district's terrain profile — a coarse but
+    honest MVP approximation (see TODOs in risk_engine for the upgrade path).
+    """
+    name = district_for_point(lat, lon)
+    return district_stats(name) if name else None

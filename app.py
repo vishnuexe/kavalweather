@@ -61,8 +61,12 @@ def assess_all_districts(bundle):
     return results
 
 
-def terrain_figure(name):
-    """3D elevation surface of a district, clipped to its boundary."""
+def terrain_figure(name, marker=None):
+    """3D elevation surface of a district, clipped to its boundary.
+
+    ``marker`` is an optional (label, lat, lon) pin — e.g. a searched town.
+    It is drawn only when it falls inside this district.
+    """
     lons, lats, elev, mask = terrain.district_elevation(name)
     z = np.where(mask, elev, np.nan)  # NaN outside the district -> not drawn
     # Coastal cells can pick up offshore bathymetry from the DEM blend;
@@ -73,6 +77,22 @@ def terrain_figure(name):
         colorscale="Turbo", colorbar=dict(title="m", thickness=12, len=0.6),
         hovertemplate="Elevation: %{z:.0f} m<extra></extra>",
     ))
+    if marker:
+        label, mlat, mlon = marker
+        i = int(np.abs(lats - mlat).argmin())
+        j = int(np.abs(lons - mlon).argmin())
+        if (lats.min() <= mlat <= lats.max()
+                and lons.min() <= mlon <= lons.max() and mask[i, j]):
+            z_range = float(np.nanmax(z) - np.nanmin(z)) or 1.0
+            spot = float(z[i, j])
+            fig.add_trace(go.Scatter3d(
+                x=[mlon], y=[mlat], z=[spot + max(100.0, 0.05 * z_range)],
+                mode="markers+text", text=[label], textposition="top center",
+                marker=dict(size=5, color="#d32f2f", symbol="diamond"),
+                textfont=dict(size=13, color="#d32f2f"),
+                hovertemplate="{}<br>Elevation: {:.0f} m<extra></extra>".format(label, spot),
+            ))
+            fig.update_layout(showlegend=False)
     # True-to-scale footprint with a gentle vertical exaggeration.
     lat_mid = math.radians(float(np.mean(lats)))
     x_km = abs(lons[-1] - lons[0]) * 111.32 * math.cos(lat_mid)
@@ -135,9 +155,27 @@ with st.expander("🔍 Search any Kerala town or village", expanded=False):
             st.info("No matching place found in Kerala. Try another spelling.")
         else:
             labels = ["{} ({})".format(m["name"], m["admin2"] or "Kerala") for m in matches]
-            pick = st.selectbox("Matches", labels, label_visibility="collapsed")
+            pick = st.selectbox("Matches", labels, key="search_match",
+                                label_visibility="collapsed")
             m = matches[labels.index(pick)]
             search_point = (m["name"], m["latitude"], m["longitude"])
+
+# The detail panel shows either the searched place or the selected district
+# ("view mode"). A fresh search switches to the place — and selects the
+# district containing it, so the map/3D view line up; picking a district
+# (dropdown or map click) switches back and dismisses the place panel.
+if search_point:
+    picked_label = "{}|{:.4f}|{:.4f}".format(*search_point)
+    if picked_label != st.session_state.get("_last_search_pick"):
+        st.session_state["_last_search_pick"] = picked_label
+        st.session_state["view_mode"] = "place"
+        home = terrain.district_for_point(search_point[1], search_point[2])
+        if home:
+            st.session_state["district_select"] = home
+else:
+    st.session_state.pop("_last_search_pick", None)
+    if st.session_state.get("view_mode") == "place":
+        st.session_state["view_mode"] = "district"
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +222,7 @@ with map_col:
     if clicked_name and clicked_name != st.session_state.get("_last_map_click"):
         st.session_state["_last_map_click"] = clicked_name
         st.session_state["district_select"] = clicked_name
+        st.session_state["view_mode"] = "district"
 
     # 3D terrain view, directly below the map. Behind a toggle on purpose:
     # each 3D surface consumes a browser WebGL context (hard-capped per
@@ -193,7 +232,7 @@ with map_col:
     if st.toggle("🏔️ 3D terrain view — {}".format(selected_district), key="show_terrain_3d"):
         try:
             with st.spinner("Building elevation model…"):
-                st.plotly_chart(terrain_figure(selected_district),
+                st.plotly_chart(terrain_figure(selected_district, marker=search_point),
                                 use_container_width=True, key="terrain_3d_chart",
                                 config={"displayModeBar": False})
             st.caption(
@@ -295,8 +334,16 @@ def _fmt(value, unit):
     return "{:.1f} {}".format(value, unit)
 
 
+def _dismiss_search():
+    """User picked a district explicitly -> district details take the top."""
+    st.session_state["view_mode"] = "district"
+
+
 with detail_col:
-    if search_point:
+    district = st.selectbox("District detail", config.DISTRICT_NAMES,
+                            key="district_select", on_change=_dismiss_search)
+
+    if st.session_state.get("view_mode") == "place" and search_point:
         st.subheader("📍 {}".format(search_point[0]))
         point = data_sources.fetch_point(search_point[1], search_point[2])
         if point["failed"]:
@@ -311,8 +358,8 @@ with detail_col:
             p_result = compute_risk(RiskInputs(**p_inputs))
             render_assessment(p_result, point["weather"], point["flood"])
         st.divider()
+        st.subheader("🗺️ {} district".format(district))
 
-    district = st.selectbox("District detail", config.DISTRICT_NAMES, key="district_select")
     if district in results:
         render_assessment(
             results[district],

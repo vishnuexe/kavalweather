@@ -118,10 +118,14 @@ off when you're done for the smoothest experience.
 
 Open **"Search any Kerala town or village"** at the top and type a place
 name (for example *Munnar*, *Kochi* or *Nilambur*). Pick the right match
-from the list — the town appears as a 📍 pin on the map and gets its own
-detail panel, calculated exactly for that spot rather than for the whole
-district. Useful because weather in the hills can be very different from
-the coast, even inside one district.
+from the list — the town appears as a 📍 pin on the map, its district is
+selected automatically, and it gets its own detail panel calculated
+exactly for that spot rather than for the whole district. Useful because
+weather in the hills can be very different from the coast, even inside
+one district. If the 3D terrain view is switched on, the town is pinned
+on the 3D model too, so you can see whether it sits in a valley, on a
+slope or by the coast. Picking a district from the dropdown or the map
+afterwards returns the panel to district view.
 
 ## Messages you might see
 
