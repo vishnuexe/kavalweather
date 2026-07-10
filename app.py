@@ -6,6 +6,7 @@ detail panel, and the location search. All scoring logic lives in
 """
 
 import datetime as dt
+import logging
 import math
 
 import folium
@@ -168,10 +169,12 @@ with map_col:
                 "Elevation heatmap from open DEM tiles (~150 m grid, vertical "
                 "scale exaggerated). Drag to rotate, pinch/scroll to zoom."
             )
-        except Exception:  # noqa: BLE001 - tiles unreachable: degrade
-            st.info("Terrain view is unavailable right now (elevation tile "
-                    "service unreachable). The risk score is unaffected — it "
-                    "uses precomputed terrain data.")
+        except Exception as exc:  # noqa: BLE001 - degrade, but say why
+            logging.getLogger(__name__).exception("3D terrain view failed")
+            st.info("Terrain view is unavailable right now. The risk score "
+                    "is unaffected — it uses precomputed terrain data.")
+            st.caption("Technical detail: {}: {}".format(
+                type(exc).__name__, str(exc)[:160]))
 
     chips = "".join(
         '<span class="legend-chip" style="background:{}">{}</span>'.format(color, name)

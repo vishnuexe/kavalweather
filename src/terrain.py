@@ -29,7 +29,12 @@ from PIL import Image
 
 from src import config, geo
 
-TILE_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+# Same AWS Open Data bucket via two URL styles: virtual-hosted first
+# (path-style is legacy and unreliable from some networks).
+TILE_URLS = [
+    "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png",
+    "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png",
+]
 STATS_PATH = config.REPO_ROOT / "data" / "terrain_stats.json"
 
 ZOOM = 10          # ~150 m/pixel at Kerala latitudes: fine for district stats
@@ -59,12 +64,18 @@ def _lonlat_to_tilef(lon: float, lat: float, zoom: int) -> Tuple[float, float]:
 
 
 def _fetch_tile(zoom: int, x: int, y: int) -> np.ndarray:
-    resp = requests.get(TILE_URL.format(z=zoom, x=x, y=y),
-                        timeout=config.REQUEST_TIMEOUT)
-    resp.raise_for_status()
-    rgb = np.asarray(Image.open(io.BytesIO(resp.content)).convert("RGB"),
-                     dtype=np.float64)
-    return rgb[:, :, 0] * 256.0 + rgb[:, :, 1] + rgb[:, :, 2] / 256.0 - 32768.0
+    last_error: Exception = RuntimeError("no tile URL configured")
+    for url in TILE_URLS:
+        try:
+            resp = requests.get(url.format(z=zoom, x=x, y=y),
+                                timeout=config.REQUEST_TIMEOUT)
+            resp.raise_for_status()
+            rgb = np.asarray(Image.open(io.BytesIO(resp.content)).convert("RGB"),
+                             dtype=np.float64)
+            return rgb[:, :, 0] * 256.0 + rgb[:, :, 1] + rgb[:, :, 2] / 256.0 - 32768.0
+        except Exception as exc:  # noqa: BLE001 - try the next URL style
+            last_error = exc
+    raise last_error
 
 
 def elevation_grid(bbox: Tuple[float, float, float, float],
