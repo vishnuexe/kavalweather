@@ -291,6 +291,49 @@ def _resolve_3d_click(clicks, pick3d):
     return place, float(pick3d["risk"][idx]), float(pick3d["elev"][idx])
 
 
+@st.fragment
+def render_3d_section(district_name, marker, risk_result):
+    """3D view as an isolated fragment: chart clicks rerun only this block,
+    so the folium map and detail panels are not re-rendered per click."""
+    if not st.toggle("🏔️ 3D risk & terrain view — {}".format(district_name),
+                     key="show_terrain_3d"):
+        return
+    try:
+        with st.spinner("Building elevation model…"):
+            fig3d, pick3d = terrain_figure(district_name, marker=marker,
+                                           risk_result=risk_result)
+        # streamlit-plotly-events hooks plotly's native click event, which
+        # fires in 3D scenes (Streamlit's own on_select does not, and it
+        # also breaks scene rotation). District-specific key so a click
+        # never carries over to another district's grid.
+        clicks = plotly_events(fig3d, click_event=True, override_height=430,
+                               key="terrain3d_{}".format(district_name))
+        spot = _resolve_3d_click(clicks, pick3d)
+        if spot:
+            place, risk_val, elev_val = spot
+            level, color = level_for_score(risk_val)
+            st.markdown(
+                '📍 **{}** — local risk <span class="risk-badge" '
+                'style="background:{};font-size:0.85rem;padding:0.1rem 0.6rem">'
+                '{:.0f}/100 · {}</span> · elevation {:.0f} m'.format(
+                    place, color, risk_val, level, elev_val),
+                unsafe_allow_html=True,
+            )
+        st.caption(
+            "Surface shape = elevation (~150 m grid, vertical scale "
+            "exaggerated); colour = local risk for the next 24 h "
+            "(blue low → red high), from the district forecast amplified "
+            "by each cell's own terrain. Drag to rotate; click anywhere "
+            "on the surface to identify that place and its risk."
+        )
+    except Exception as exc:  # noqa: BLE001 - degrade, but say why
+        logging.getLogger(__name__).exception("3D terrain view failed")
+        st.info("Terrain view is unavailable right now. The risk score "
+                "is unaffected — it uses precomputed terrain data.")
+        st.caption("Technical detail: {}: {}".format(
+            type(exc).__name__, str(exc)[:160]))
+
+
 # The detail panel shows either the searched place or the selected district
 # ("view mode"). A fresh search switches to the place — and selects the
 # district containing it, so the map/3D view line up; picking a district
@@ -355,48 +398,14 @@ with map_col:
         st.session_state["district_select"] = clicked_name
         st.session_state["view_mode"] = "district"
 
-    # 3D terrain view, directly below the map. Behind a toggle on purpose:
-    # each 3D surface consumes a browser WebGL context (hard-capped per
-    # tab), so the chart must only exist while explicitly enabled, and
-    # reuses one mounted component (stable key) across district switches.
+    # 3D terrain view, directly below the map. Behind a toggle (each 3D
+    # surface holds a browser WebGL context, hard-capped per tab) and inside
+    # a fragment: every click on the 3D chart triggers a rerun, and without
+    # isolation that rerun re-rendered the folium map and re-shipped the
+    # multi-MB 3D payload app-wide — a few clicks exhausted the tab.
     selected_district = st.session_state.get("district_select", config.DISTRICT_NAMES[0])
-    if st.toggle("🏔️ 3D risk & terrain view — {}".format(selected_district), key="show_terrain_3d"):
-        try:
-            with st.spinner("Building elevation model…"):
-                fig3d, pick3d = terrain_figure(
-                    selected_district, marker=search_point,
-                    risk_result=results.get(selected_district))
-            # streamlit-plotly-events hooks plotly's native click event,
-            # which fires in 3D scenes (Streamlit's own on_select does not,
-            # and it also breaks scene rotation). District-specific key so
-            # a click never carries over to another district's grid.
-            clicks = plotly_events(fig3d, click_event=True,
-                                   override_height=430,
-                                   key="terrain3d_{}".format(selected_district))
-            spot = _resolve_3d_click(clicks, pick3d)
-            if spot:
-                place, risk_val, elev_val = spot
-                level, color = level_for_score(risk_val)
-                st.markdown(
-                    '📍 **{}** — local risk <span class="risk-badge" '
-                    'style="background:{};font-size:0.85rem;padding:0.1rem 0.6rem">'
-                    '{:.0f}/100 · {}</span> · elevation {:.0f} m'.format(
-                        place, color, risk_val, level, elev_val),
-                    unsafe_allow_html=True,
-                )
-            st.caption(
-                "Surface shape = elevation (~150 m grid, vertical scale "
-                "exaggerated); colour = local risk for the next 24 h "
-                "(blue low → red high), from the district forecast amplified "
-                "by each cell's own terrain. Drag to rotate; click anywhere "
-                "on the surface to identify that place and its risk."
-            )
-        except Exception as exc:  # noqa: BLE001 - degrade, but say why
-            logging.getLogger(__name__).exception("3D terrain view failed")
-            st.info("Terrain view is unavailable right now. The risk score "
-                    "is unaffected — it uses precomputed terrain data.")
-            st.caption("Technical detail: {}: {}".format(
-                type(exc).__name__, str(exc)[:160]))
+    render_3d_section(selected_district, search_point,
+                      results.get(selected_district))
 
     chips = "".join(
         '<span class="legend-chip" style="background:{}">{}</span>'.format(color, name)
