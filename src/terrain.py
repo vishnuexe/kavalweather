@@ -215,6 +215,32 @@ def compute_stats(lons: np.ndarray, lats: np.ndarray,
     }
 
 
+def cell_susceptibility(lons: np.ndarray, lats: np.ndarray,
+                        elev: np.ndarray) -> np.ndarray:
+    """Per-cell 0-100 terrain susceptibility grid for a district.
+
+    The grid analogue of ``risk_engine.terrain_susceptibility``: per ~150 m
+    cell, the maximum of a slope hazard (cell-level breakpoints from
+    ``risk_engine.CELL_SLOPE_BREAKPOINTS``) and a low-elevation hazard
+    (100 at sea level tapering to 0 at ``LOWLAND_M``). Used to texture the
+    3D local-risk surface; district *scoring* uses the precomputed
+    district-mean statistics instead.
+    """
+    from src.risk_engine import CELL_SLOPE_BREAKPOINTS
+
+    lat_mid = math.radians(float(np.mean(lats)))
+    dy_m = 111320.0 * abs(float(lats[0] - lats[1]))
+    dx_m = 111320.0 * math.cos(lat_mid) * abs(float(lons[1] - lons[0]))
+    gy, gx = np.gradient(elev, dy_m, dx_m)
+    slope_deg = np.degrees(np.arctan(np.hypot(gx, gy)))
+
+    xs = [p[0] for p in CELL_SLOPE_BREAKPOINTS]
+    ys = [p[1] for p in CELL_SLOPE_BREAKPOINTS]
+    slope_score = np.interp(slope_deg, xs, ys)
+    lowland_score = np.clip((LOWLAND_M - elev) * (100.0 / LOWLAND_M), 0.0, 100.0)
+    return np.maximum(slope_score, lowland_score)
+
+
 @lru_cache(maxsize=1)
 def _stats_table() -> Dict[str, Dict[str, float]]:
     """Per-district terrain stats: precomputed file, else computed live."""

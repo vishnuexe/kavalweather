@@ -105,14 +105,19 @@ flagged; if "River discharge anomaly" leads, the concern is river flooding
 rather than the sky above you. The bullet points below the chart say the
 same thing in words.
 
-**🏔️ 3D terrain view** — right below the map there's a switch that shows a
-3D model of the selected district. Colours show elevation (blue/green =
-low, red = high) and the surface shape is the real landscape, gently
-stretched vertically so hills are easier to see. Drag to rotate, scroll or
-pinch to zoom. It helps you *see* why a district is terrain-susceptible —
-Idukki rises like a wall, Alappuzha is almost perfectly flat. The first
-open takes a few seconds while the elevation model downloads; switch it
-off when you're done for the smoothest experience.
+**🏔️ 3D risk & terrain view** — right below the map there's a switch that
+shows a 3D model of the selected district. The **shape** is the real
+landscape (gently stretched vertically so hills are easier to see); the
+**colour is risk**, not height: blue = low risk, red = high risk, on the
+same 0–100 scale as the district score. Within one district the weather
+forecast is the same everywhere, so the colour differences show where the
+*land itself* makes that weather more dangerous — steep slopes and very
+low-lying areas glow warmer than the district average when rain is coming.
+On a calm day the whole surface is rightly blue. Drag to rotate, scroll or
+pinch to zoom, and **click anywhere on the surface** to see that spot's
+place name, its local risk score and its elevation. The first open takes a
+few seconds while the elevation model downloads; switch it off when you're
+done for the smoothest experience.
 
 ## Searching for your town
 

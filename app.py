@@ -16,7 +16,8 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from src import config, data_sources, geo, terrain
-from src.risk_engine import RiskInputs, RISK_LEVELS, compute_risk
+from src.risk_engine import (FACTOR_WEIGHTS, RiskInputs, RISK_LEVELS,
+                             compute_risk, level_for_score)
 
 st.set_page_config(
     page_title="KavalWeather — Kerala Weather Risk Dashboard",
@@ -61,22 +62,58 @@ def assess_all_districts(bundle):
     return results
 
 
-def terrain_figure(name, marker=None):
-    """3D elevation surface of a district, clipped to its boundary.
+def local_risk_field(risk_result, lons, lats, elev, mask):
+    """Per-cell 0-100 risk over a district's DEM grid.
 
-    ``marker`` is an optional (label, lat, lon) pin — e.g. a searched town.
-    It is drawn only when it falls inside this district.
+    The district's *weather* is uniform (one forecast per district), so the
+    spatial texture comes from the terrain amplifier applied per cell: the
+    district's five weather-driven factor points plus the terrain factor
+    computed with each cell's own susceptibility. Cells at the district-mean
+    susceptibility therefore match the district score.
+    """
+    susceptibility = terrain.cell_susceptibility(lons, lats, elev)
+    base = sum(c.weighted_points for c in risk_result.contributions
+               if c.key != "terrain")
+    wet_driver = max(c.component_score for c in risk_result.contributions
+                     if c.key in ("rain_24h", "rain_intensity", "discharge"))
+    field = base + FACTOR_WEIGHTS["terrain"] * susceptibility * wet_driver / 100.0
+    return np.where(mask, np.clip(field, 0.0, 100.0), np.nan)
+
+
+def terrain_figure(name, marker=None, risk_result=None):
+    """3D district surface: elevation shape, coloured by local risk.
+
+    Colour is the per-cell risk field (blue = low, red = high, fixed 0-100
+    scale) when ``risk_result`` is given, else plain elevation. ``marker``
+    is an optional (label, lat, lon) pin, drawn only inside this district.
+    A sparse, near-invisible point layer carries (risk, elevation) as
+    customdata so clicks can be resolved to a spot (3D surfaces themselves
+    do not emit reliable click events).
     """
     lons, lats, elev, mask = terrain.district_elevation(name)
     z = np.where(mask, elev, np.nan)  # NaN outside the district -> not drawn
     # Coastal cells can pick up offshore bathymetry from the DEM blend;
     # clamp so backwaters (Kuttanad ~ -3 m) stay visible without a fake trench.
     z = np.maximum(z, -10.0)
-    fig = go.Figure(go.Surface(
-        x=lons, y=lats, z=z,
-        colorscale="Turbo", colorbar=dict(title="m", thickness=12, len=0.6),
-        hovertemplate="Elevation: %{z:.0f} m<extra></extra>",
-    ))
+
+    risk = None
+    if risk_result is not None:
+        risk = local_risk_field(risk_result, lons, lats, elev, mask)
+        fig = go.Figure(go.Surface(
+            x=lons, y=lats, z=z,
+            surfacecolor=risk, cmin=0, cmax=100, colorscale="Portland",
+            colorbar=dict(title="Risk", thickness=12, len=0.6),
+            text=np.char.mod("%.0f", np.nan_to_num(risk)),
+            hovertemplate=("Local risk: %{text}/100<br>"
+                           "Elevation: %{z:.0f} m<extra></extra>"),
+        ))
+    else:
+        fig = go.Figure(go.Surface(
+            x=lons, y=lats, z=z,
+            colorscale="Turbo", colorbar=dict(title="m", thickness=12, len=0.6),
+            hovertemplate="Elevation: %{z:.0f} m<extra></extra>",
+        ))
+
     if marker:
         label, mlat, mlon = marker
         i = int(np.abs(lats - mlat).argmin())
@@ -88,11 +125,29 @@ def terrain_figure(name, marker=None):
             fig.add_trace(go.Scatter3d(
                 x=[mlon], y=[mlat], z=[spot + max(100.0, 0.05 * z_range)],
                 mode="markers+text", text=[label], textposition="top center",
-                marker=dict(size=5, color="#d32f2f", symbol="diamond"),
-                textfont=dict(size=13, color="#d32f2f"),
+                marker=dict(size=5, color="#1a1a1a", symbol="diamond"),
+                textfont=dict(size=13, color="#1a1a1a"),
                 hovertemplate="{}<br>Elevation: {:.0f} m<extra></extra>".format(label, spot),
             ))
-            fig.update_layout(showlegend=False)
+
+    if risk is not None:
+        # Clickable pick layer: every ~4th in-district cell, effectively
+        # invisible but selectable; customdata = (local risk, elevation).
+        step = max(1, int(np.ceil(max(z.shape) / 40.0)))
+        sub = np.zeros_like(mask)
+        sub[::step, ::step] = True
+        pi, pj = np.where(mask & sub)
+        fig.add_trace(go.Scatter3d(
+            x=lons[pj], y=lats[pi], z=elev[pi, pj] + 25.0,
+            mode="markers",
+            marker=dict(size=4, color="rgba(0,0,0,0.01)"),
+            customdata=np.stack([risk[pi, pj], elev[pi, pj]], axis=1),
+            hovertemplate=("Local risk: %{customdata[0]:.0f}/100<br>"
+                           "Elevation: %{customdata[1]:.0f} m"
+                           "<extra>click to identify place</extra>"),
+        ))
+
+    fig.update_layout(showlegend=False)
     # True-to-scale footprint with a gentle vertical exaggeration.
     lat_mid = math.radians(float(np.mean(lats)))
     x_km = abs(lons[-1] - lons[0]) * 111.32 * math.cos(lat_mid)
@@ -229,15 +284,43 @@ with map_col:
     # tab), so the chart must only exist while explicitly enabled, and
     # reuses one mounted component (stable key) across district switches.
     selected_district = st.session_state.get("district_select", config.DISTRICT_NAMES[0])
-    if st.toggle("🏔️ 3D terrain view — {}".format(selected_district), key="show_terrain_3d"):
+    if st.toggle("🏔️ 3D risk & terrain view — {}".format(selected_district), key="show_terrain_3d"):
         try:
             with st.spinner("Building elevation model…"):
-                st.plotly_chart(terrain_figure(selected_district, marker=search_point),
-                                use_container_width=True, key="terrain_3d_chart",
-                                config={"displayModeBar": False})
+                fig3d = terrain_figure(selected_district, marker=search_point,
+                                       risk_result=results.get(selected_district))
+                event = st.plotly_chart(fig3d, use_container_width=True,
+                                        key="terrain_3d_chart",
+                                        on_select="rerun", selection_mode="points",
+                                        config={"displayModeBar": False})
+            # A click on the pick layer -> identify the spot by name + risk.
+            points = []
+            try:
+                points = event.selection.points
+            except Exception:  # noqa: BLE001 - no selection support/state
+                points = []
+            picked = [p for p in points
+                      if isinstance(p.get("customdata"), (list, tuple))
+                      and len(p["customdata"]) == 2]
+            if picked:
+                p = picked[-1]
+                risk_val, elev_val = float(p["customdata"][0]), float(p["customdata"][1])
+                level, color = level_for_score(risk_val)
+                place = data_sources.reverse_geocode(
+                    round(float(p["y"]), 4), round(float(p["x"]), 4)) or "Unnamed area"
+                st.markdown(
+                    '📍 **{}** — local risk <span class="risk-badge" '
+                    'style="background:{};font-size:0.85rem;padding:0.1rem 0.6rem">'
+                    '{:.0f}/100 · {}</span> · elevation {:.0f} m'.format(
+                        place, color, risk_val, level, elev_val),
+                    unsafe_allow_html=True,
+                )
             st.caption(
-                "Elevation heatmap from open DEM tiles (~150 m grid, vertical "
-                "scale exaggerated). Drag to rotate, pinch/scroll to zoom."
+                "Surface shape = elevation (~150 m grid, vertical scale "
+                "exaggerated); colour = local risk for the next 24 h "
+                "(blue low → red high), from the district forecast amplified "
+                "by each cell's own terrain. Drag to rotate; click anywhere "
+                "on the surface to identify that place and its risk."
             )
         except Exception as exc:  # noqa: BLE001 - degrade, but say why
             logging.getLogger(__name__).exception("3D terrain view failed")

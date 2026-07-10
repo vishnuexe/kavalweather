@@ -87,6 +87,12 @@ FACTOR_BREAKPOINTS = {
 SLOPE_BREAKPOINTS = [(0, 0), (2, 25), (4, 50), (6, 75), (9, 100)]      # deg
 LOWLAND_BREAKPOINTS = [(0, 0), (0.10, 30), (0.25, 55), (0.45, 80), (0.65, 100)]
 
+#: Cell-level slope breakpoints for the 3D local-risk surface. Individual
+#: ~150 m DEM cells reach far steeper values than district means (0-40+ deg
+#: vs 0.3-6.7 deg), so they use their own scale: 12 deg is a commonly used
+#: landslide-susceptibility threshold, 20+ deg is steep scarp terrain.
+CELL_SLOPE_BREAKPOINTS = [(0, 0), (5, 25), (12, 50), (20, 80), (30, 100)]
+
 FACTOR_LABELS = {
     "rain_24h": "24h accumulated rain",
     "rain_intensity": "Peak rain intensity",

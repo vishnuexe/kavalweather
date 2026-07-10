@@ -73,6 +73,18 @@ Because the transform is linear and additive, the score is exactly
 decomposable: the "Why this score?" panel reports each factor's
 contribution in points, in the same units as the composite.
 
+### Local risk surface (3D view)
+
+The 3D district view colours the DEM surface with a **per-cell risk
+field**: the district's five weather-driven factor contributions (uniform
+within the district) plus the terrain factor recomputed with each ~150 m
+cell's own susceptibility — cell slope against landslide-oriented
+breakpoints, and proximity to sea level for pooling hazard. This renders
+intra-district risk texture (escarpments, backwater basins) without
+additional forecast calls, and reduces to the district score at cells of
+district-mean susceptibility. Clicked locations are identified by reverse
+geocoding (OSM Nominatim).
+
 ## Known limitations (MVP)
 
 * District risk is evaluated at the polygon centroid — orographic gradients

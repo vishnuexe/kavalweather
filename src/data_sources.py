@@ -193,6 +193,34 @@ def _geocode_open_meteo(query: str) -> List[Dict[str, Any]]:
     return results
 
 
+@_cached
+def reverse_geocode(lat: float, lon: float) -> Optional[str]:
+    """Short place name for a coordinate (OSM Nominatim, village-level zoom).
+
+    Used by the 3D terrain view to name a clicked spot. Returns None on any
+    failure — callers show a generic label instead.
+    """
+    try:
+        resp = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"lat": lat, "lon": lon, "format": "jsonv2",
+                    "zoom": 14, "addressdetails": 1},
+            headers={"User-Agent": "KavalWeather/0.1 (https://github.com/vishnuexe/kavalweather)"},
+            timeout=config.REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:  # noqa: BLE001
+        return None
+    addr = data.get("address", {})
+    for key in ("village", "town", "suburb", "municipality", "city",
+                "hamlet", "locality", "county"):
+        if addr.get(key):
+            return addr[key]
+    name = data.get("name") or data.get("display_name", "").split(",")[0]
+    return name or None
+
+
 def _geocode_nominatim(query: str) -> List[Dict[str, Any]]:
     """OSM Nominatim fallback, restricted to the Kerala bounding box.
 
